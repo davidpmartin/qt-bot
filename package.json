@@ -1,0 +1,24 @@
+{
+  "name": "qt-bot",
+  "version": "1.0.0",
+  "description": "Cute discord bot :)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^11.5.1",
+    "ffmpeg": "0.0.4",
+    "ffmpeg-binaries": "^4.0.0",
+    "opusscript": "0.0.7",
+    "parse-time": "^0.1.4",
+    "simple-youtube-api": "^5.2.1",
+    "ytdl-core": "^1.0.7",
+    "ytdl-core-discord": "git+https://github.com/amishshah/ytdl-core-discord.git"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.2"
+  }
+}
