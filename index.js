@@ -1,7 +1,6 @@
 const Discord = require("discord.js");
 const { MessageEmbed } = require("discord.js");
 const { prefix, token, ytKey } = require("./config.json");
-//const ytdl = require("ytdl-core");
 const YoutubeObj = require("simple-youtube-api");
 const youtube = new YoutubeObj(ytKey);
 const ytdl = require('ytdl-core-discord');
@@ -16,7 +15,7 @@ client.once("ready", () => {
 });
 
 
-/* Message events 
+// Message events 
 client.on("message", message => {
   // Don't respond to own messages
   if (message.author.bot) return;
@@ -40,15 +39,20 @@ client.on("message", message => {
       break;
 
     case "skip":
+      skip(message, serverQueue);
       break;
 
     case "stop":
       stop(message, serverQueue);
       break;
+
+    case "queue":
+      sendQueue(message, serverQueue);
+      break;
   }
-}); */
+});
 
-
+/* 
 // Testing ytdl-core-discord
 const playTest = async (connection, url) => {
   connection.playOpusStream(await ytdl("https://www.youtube.com/watch?v=ed_UWFr13pU",
@@ -71,7 +75,7 @@ client.on('message', async (message) => {
     }).catch(err => console.error(err));
   }
 });
-
+ */
 
 /**
  * Help Msg
@@ -81,27 +85,26 @@ function help(msg) {
 }
 
 /**
- * Executes a play command
+ * Handles a play music command
  */
-async function execute(msg, serverQueue) {
-  const args = msg.content.split(" ");
-  const voiceChannel = msg.member.voiceChannel;
+async function execute(message, serverQueue) {
+  const args = message.content.split(" ");
+  const voiceChannel = message.member.voiceChannel;
 
   // Check conditions (in voice channel and perms)
   if (!voiceChannel)
-    return msg.channel.send("You need to be in a voice channel to play music");
-  const perms = voiceChannel.permissionsFor(msg.client.user);
+    return message.channel.send("You need to be in a voice channel to play music");
+  const perms = voiceChannel.permissionsFor(message.client.user);
   if (!perms.has("CONNECT") || !perms.has("SPEAK")) {
-    return msg.channel.send(
+    return message.channel.send(
       `You do not have permissions to join and speak in the channel ${voiceChannel}`
     );
   }
 
-  /**** LATER - SONG SELECTION FUNCTIOANLITY *****/
-  // Get song info
+  // Get search results
   try {
-    console.log(args);
-    const results = await youtube.searchVideos("zhu faded", 10);
+    const search = args.slice(1).join()
+    const results = await youtube.searchVideos(search, 10);
     const vidArr = [];
 
     // Generate an array contains all video titles
@@ -113,7 +116,7 @@ async function execute(msg, serverQueue) {
     // Create an embeded message
     const embed = new Discord.RichEmbed()
       .setColor("#e9f931")
-      .setTitle("Choose from the following search results (c to cancel)")
+      .setTitle("Choose from the following search results:")
       .addField("Song 1", vidArr[0])
       .addField("Song 2", vidArr[1])
       .addField("Song 3", vidArr[2])
@@ -124,74 +127,124 @@ async function execute(msg, serverQueue) {
       .addField("Song 8", vidArr[7])
       .addField("Song 9", vidArr[8])
       .addField("Song 10", vidArr[9])
-      .addField("Exit", vidArr[10]); // user can reply with 'exit' if none matches
-    var songEmbed = await msg.channel.send({ embed });
+      .addField("cancel (c)", vidArr[10]); // user can reply with 'c' if none matches
+    var songEmbed = await message.channel.send({ embed });
+
+    // Wait for response to selection
+    try {
+      var response = await message.channel.awaitMessages(msg => (msg.content > 0 && msg.content <= 10) || msg.content === 'c',
+        {
+          max: 1,
+          maxProcessed: 1,
+          time: 60000,
+          errors: ['time']
+        }
+      );
+      var userSelection = parseInt(response.first().content);
+
+    } catch (err) {
+      console.error(err);
+      songEmbed.delete();
+      return message.channel.send('Please try again and enter a number between 1 and 10 or c')
+    }
+
+    // Handle cancel selection
+    if (response.first().content.toLowerCase() === 'c') return songEmbed.delete();
+
+    // Get video data from youtube api
+    try {
+      var video = await youtube.getVideoByID(results[userSelection - 1].id);
+    } catch (err) {
+      console.error(err);
+      songEmbed.delete();
+      return message.channel.send("An error occured when trying to retrieve the video ID from youtube")
+    };
+
+    // Store song details
+    const url = `https://www.youtube.com/watch?v=${video.raw.id}`;
+    const title = video.title;
+    const duration = video.duration;
+    const thumbnail = video.thumbnails.high.url;
+    const song = {
+      url,
+      title,
+      duration,
+      thumbnail,
+      voiceChannel
+    }
+
+    // Remove the selection
+    songEmbed.delete()
+
+    if (!serverQueue) {
+      const queueSchema = {
+        textChannel: message.channel,
+        voiceChannel: voiceChannel,
+        connection: null,
+        songs: [],
+        volume: 3,
+        playing: true
+      };
+      queue.set(message.guild.id, queueSchema);
+      queueSchema.songs.push(song);
+
+      try {
+        var connection = await voiceChannel.join();
+        queueSchema.connection = connection;
+        play(message.guild, message);
+      } catch (err) {
+        console.log(err);
+        queue.delete(message.guild.id);
+        return message.channel.send(err);
+      }
+    } else {
+      serverQueue.songs.push(song);
+      return message.channel.send(`'${song.title}' added to the queue!`);
+    }
 
   } catch (err) {
     console.log(err);
     if (songEmbed) {
       songEmbed.delete();
     }
-    return msg.channel.send("Something went wrong searching for you video :(");
-  }
-
-  const song = {
-    title: "testSong",
-    url: "https://www.youtube.com/watch?v=N26N7lQHNW8"
-  }
-
-  if (!serverQueue) {
-    const queueSchema = {
-      textChannel: msg.channel,
-      voiceChannel: voiceChannel,
-      connection: null,
-      songs: [],
-      volume: 3,
-      playing: true
-    };
-
-    queue.set(msg.guild.id, queueSchema);
-    queueSchema.songs.push(song);
-
-    try {
-      var connection = await voiceChannel.join();
-      queueSchema.connection = connection;
-      play(msg.guild, queueSchema.songs[0]);
-    } catch (err) {
-      console.log(err);
-      queue.delete(msg.guild.id);
-      return msg.channel.send(err);
-    }
-  } else {
-    serverQueue.songs.push(song);
-    console.log(serverQueue.songs);
-    return msg.channel.send(`'${song.title}' added to the queue!`);
+    return message.channel.send("Something went wrong searching for your song :(");
   }
 }
 
 /**
  * Plays a song
  */
-async function play(guild, song) {
+async function play(guild, message) {
   const serverQueue = queue.get(guild.id);
+  const song = serverQueue.songs[0];
   if (!song) {
     serverQueue.voiceChannel.leave();
     queue.delete(guild.id);
     return;
   }
 
-  let stream = ytdl("https://www.youtube.com/watch?v=ed_UWFr13pU", { filter: 'audioonly' });
-  stream.on('error', console.error);
-
   const dispatcher = await serverQueue.connection
-    .playStream(stream)
+    .playOpusStream(await ytdl(song.url,
+      { quality: 'highestaudio' }), { highWaterMark: 1024 * 1024 * 10 })
+    .on("start", () => {
+
+      // Display current song
+      const songEmbed = new Discord.RichEmbed()
+        .setColor('#e9f931')
+        .addField('Now Playing:', song.title)
+        .addField('Duration: ', song.duration)
+      if (serverQueue.songs[1]) songEmbed.addField('Next Song: ', serverQueue.songs[1].title);
+      message.channel.send(songEmbed);
+      return serverQueue.songs.shift();
+
+    })
     .on("end", () => {
       console.log("Music ended!");
-      serverQueue.songs.shift();
-      play(guild, serverQueue.songs[0]);
+      if (serverQueue.songs[0]) return play(guild, message);
     })
     .on("error", err => {
       console.error(err);
+      message.channel.send("Error playing song");
     });
   dispatcher.setVolumeLogarithmic(serverQueue.volume / 5);
 }
@@ -199,15 +252,34 @@ async function play(guild, song) {
 /**
  * Skips a song in the queue
  */
-function skip() { }
+function skip(message, serverQueue) {
+  if (!message.member.voiceChannel) return message.channel.send('You have to be in a voice channel!!');
+  if (!serverQueue) return message.channel.send('There is no song to be skipped!');
+  serverQueue.connection.dispatcher.end();
+}
 
 /**
  * Stops play
  */
 function stop(message, serverQueue) {
   if (!message.member.voiceChannel) return message.channel.send('You have to be in a voice channel!!');
+  if (!serverQueue) return message.channel.send('There is no song to be stopped!');
   serverQueue.songs = [];
   serverQueue.connection.dispatcher.end();
+}
+
+/**
+ * Shows the song queue
+ */
+function sendQueue(message, serverQueue) {
+  if (!serverQueue) return message.channel.send("No songs currently in queue!");
+  if (!serverQueue.songs) return message.channel.send("No songs currently in queue!");
+  const queueEmbed = new Discord.RichEmbed()
+    .setColor('#e9f931')
+  for (let i = 0; i < serverQueue.songs.length; i++) {
+    queueEmbed.addField(`${i + 1}`, `${serverQueue.songs[i].title}`)
+  }
+  message.channel.send(queueEmbed);
 }
 
 // Initialize
